@@ -99,6 +99,27 @@
     .result-caption { font-size: 11px; color: var(--muted); margin: 0 0 25px; }
     .result-stats { display: flex; justify-content: center; gap: 36px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 18px 0; margin-bottom: 25px; font-size: 11px; color: var(--muted); }
     .result-stats strong { color: var(--ink); font-size: 18px; display: block; margin-bottom: 4px; }
+    .result-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
+    .secondary { border: 1px solid #969ab0; border-radius: 8px; background: white; color: var(--ink); padding: 12px 19px; font-size: 12px; font-weight: 650; min-height: 43px; }
+    .secondary:hover { background: #f7f6fe; border-color: #5364d8; }
+    .copy-status { min-height: 24px; margin: 14px 0 0; color: var(--green); font-size: 12px; }
+    .copy-fallback { margin: 2px auto 0; max-width: 430px; text-align: left; }
+    .copy-fallback label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    .copy-fallback textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid #969ab0; border-radius: 8px; padding: 10px; color: var(--ink); background: white; font: inherit; font-size: 12px; line-height: 1.5; }
+    .copy-fallback textarea:focus-visible { outline: 3px solid #5364d8; outline-offset: 3px; }
+    .review { overflow-wrap: anywhere; }
+    .review h2 { font-size: 28px; letter-spacing: -.8px; margin: 0 0 12px; }
+    .review-list { margin: 24px 0; padding-left: 24px; }
+    .review-item { border-bottom: 1px solid var(--line); padding: 0 0 20px 4px; margin-bottom: 22px; }
+    .review-item h3 { font-size: 17px; line-height: 1.5; margin: 0 0 12px; }
+    .review-item p { font-size: 13px; line-height: 1.8; margin: 6px 0; }
+    .review-status { font-weight: 750; }
+    .review-status.correct { color: var(--green); }
+    .review-status.incorrect { color: var(--red); }
+    .review-fact { color: var(--muted); }
+    .review-error { color: var(--red); font-size: 13px; line-height: 1.6; }
+    .quiz-layout.is-review .mission { align-self: start; border-radius: 0 0 20px 0; }
+    .quiz-layout.is-review .space-art { flex: none; height: 300px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
     @keyframes correct-pop { 50% { transform: scale(1.015); } }
@@ -126,6 +147,8 @@
       .mission-label { font-size: 9px; margin-bottom: 10px; }
       .mission h2 { font-size: 22px; max-width: 65%; margin: 0; }
       .space-art { position: absolute; width: 155px; height: 155px; min-height: 0; right: -5px; top: -8px; margin: 0; }
+      .quiz-layout.is-review .mission { border-radius: 0; }
+      .quiz-layout.is-review .space-art { height: 155px; }
       .mission-copy, .mission-bottom { display: none; }
       .quiz-panel { padding: 24px 21px; }
       .question-title { font-size: 23px; }
@@ -223,7 +246,23 @@
               <div><strong id="result-incorrect"></strong>New discoveries</div>
               <div><strong id="result-percent"></strong>Accuracy</div>
             </div>
-            <button type="button" class="primary" id="restart">Explore again <span aria-hidden="true">↗</span></button>
+            <div class="result-actions">
+              <button type="button" class="secondary" id="review-answers">Review answers</button>
+              <button type="button" class="secondary" id="copy-result">Copy result</button>
+              <button type="button" class="primary" id="restart">Explore again <span aria-hidden="true">↗</span></button>
+            </div>
+            <p class="copy-status" id="copy-status" role="status" aria-live="polite" aria-atomic="true"></p>
+            <div class="copy-fallback" id="copy-fallback" hidden>
+              <label for="copy-summary">Copy summary manually</label>
+              <textarea id="copy-summary" readonly spellcheck="false"></textarea>
+            </div>
+            <p class="review-error" id="review-error" role="alert"></p>
+          </div>
+          <div class="review" id="review" hidden>
+            <h2 id="review-title" tabindex="-1">Your mission, reviewed</h2>
+            <p class="hint">Every answer is a chance to discover something new.</p>
+            <ol class="review-list" id="review-list"></ol>
+            <button type="button" class="secondary" id="back-to-results">Back to results</button>
           </div>
           <noscript><p>This quiz needs JavaScript to check your answers. Enable JavaScript in your browser and reload to start exploring.</p></noscript>
         </section>
@@ -321,9 +360,21 @@
     const next = document.getElementById("next");
     const results = document.getElementById("results");
     const resultsTitle = document.getElementById("results-title");
+    const quizLayout = document.getElementById("quiz");
+    const review = document.getElementById("review");
+    const reviewTitle = document.getElementById("review-title");
+    const reviewList = document.getElementById("review-list");
+    const reviewButton = document.getElementById("review-answers");
+    const reviewError = document.getElementById("review-error");
+    const copyButton = document.getElementById("copy-result");
+    const copyStatus = document.getElementById("copy-status");
+    const copyFallback = document.getElementById("copy-fallback");
+    const copySummary = document.getElementById("copy-summary");
+    const selections = Array(questions.length).fill(null);
     let current = 0;
     let score = 0;
     let answered = false;
+    let resultSummary = "";
 
     function updateProgress(completed) {
       progress.value = completed;
@@ -371,6 +422,7 @@
     function selectAnswer(selected) {
       if (answered) return;
       answered = true;
+      selections[current] = selected;
       const question = questions[current];
       const correct = selected === question.correct;
       if (correct) score++;
@@ -412,10 +464,83 @@
       document.getElementById("result-score").replaceChildren(String(score), total);
       document.getElementById("result-correct").textContent = String(score);
       document.getElementById("result-incorrect").textContent = String(questions.length - score);
-      document.getElementById("result-percent").textContent = `${Math.round(score / questions.length * 100)}%`;
+      const accuracy = `${Math.round(score / questions.length * 100)}%`;
+      document.getElementById("result-percent").textContent = accuracy;
+      resultSummary = `Orbit quiz result: ${score}/${questions.length} — ${accuracy} accuracy.`;
+      copyStatus.textContent = "";
+      copyFallback.hidden = true;
+      copySummary.value = "";
       document.getElementById("mission-title").textContent = "One mission down. Endless skies ahead.";
       resultsTitle.focus();
     }
+
+    async function copyResult() {
+      if (!resultSummary) return;
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        showCopyFailure();
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(resultSummary);
+        copyStatus.textContent = "Result copied to your clipboard.";
+      } catch {
+        showCopyFailure();
+      }
+    }
+
+    function showCopyFailure() {
+      copyStatus.textContent = "Copying failed. Select the summary below and copy it manually.";
+      copySummary.value = resultSummary;
+      copyFallback.hidden = false;
+    }
+
+    function showReview() {
+      if (selections.some((selected, index) =>
+        !Number.isInteger(selected) || selected < 0 || selected >= questions[index].answers.length)) {
+        reviewError.textContent = "Your complete answer history is unavailable. Choose Explore again to start a new mission.";
+        return;
+      }
+      reviewError.textContent = "";
+      reviewList.replaceChildren();
+      questions.forEach((question, index) => {
+        const selected = selections[index];
+        const correct = selected === question.correct;
+        const item = document.createElement("li");
+        item.className = "review-item";
+        const heading = document.createElement("h3");
+        heading.textContent = question.question;
+        const status = document.createElement("p");
+        status.className = `review-status ${correct ? "correct" : "incorrect"}`;
+        status.textContent = correct ? "Correct" : "Incorrect";
+        const chosenAnswer = document.createElement("p");
+        const chosenLabel = document.createElement("strong");
+        chosenLabel.textContent = "Your answer: ";
+        chosenAnswer.append(chosenLabel, question.answers[selected]);
+        const correctAnswer = document.createElement("p");
+        const correctLabel = document.createElement("strong");
+        correctLabel.textContent = "Correct answer: ";
+        correctAnswer.append(correctLabel, question.answers[question.correct]);
+        const fact = document.createElement("p");
+        fact.className = "review-fact";
+        fact.textContent = question.fact;
+        item.append(heading, status, chosenAnswer, correctAnswer, fact);
+        reviewList.append(item);
+      });
+      questionScreen.hidden = true;
+      results.hidden = true;
+      review.hidden = false;
+      quizLayout.classList.add("is-review");
+      reviewTitle.focus();
+    }
+
+    reviewButton.addEventListener("click", showReview);
+    copyButton.addEventListener("click", copyResult);
+    document.getElementById("back-to-results").addEventListener("click", () => {
+      review.hidden = true;
+      results.hidden = false;
+      quizLayout.classList.remove("is-review");
+      reviewButton.focus();
+    });
 
     next.addEventListener("click", () => {
       if (!answered) return;
@@ -430,7 +555,16 @@
     document.getElementById("restart").addEventListener("click", () => {
       current = 0;
       score = 0;
+      selections.fill(null);
+      reviewList.replaceChildren();
+      reviewError.textContent = "";
+      review.hidden = true;
+      quizLayout.classList.remove("is-review");
       scoreDisplay.textContent = "0";
+      resultSummary = "";
+      copyStatus.textContent = "";
+      copySummary.value = "";
+      copyFallback.hidden = true;
       updateProgress(0);
       results.hidden = true;
       questionScreen.hidden = false;
